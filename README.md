@@ -1,36 +1,139 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Voice AI Assistant — Vapi-style demo
 
-## Getting Started
+A minimal clone of [Vapi.ai](https://vapi.ai) (a platform for building voice AI
+agents). Press the mic, speak, and have a back-and-forth conversation with an
+LLM — entirely in the browser.
 
-First, run the development server:
+## What this project does
+
+- 🎙 Records mic audio in the browser via `MediaRecorder`.
+- ✍️ Sends it to **Deepgram** (`nova-3`) for speech-to-text.
+- 🤖 Feeds the transcript to **Mistral AI** (`mistral-tiny`) for a reply.
+- 🔊 Sends the reply to **ElevenLabs** (`eleven_multilingual_v2`) and plays
+  the synthesized voice back to the user.
+- 💬 Renders the running transcript in a chat-style UI.
+
+It's deliberately small — the goal is to show, end to end, what a voice agent
+pipeline looks like, with API keys safely held server-side via Next.js API
+routes.
+
+## Tech stack
+
+- **Next.js 15** (App Router) + **React 19** + **TypeScript**
+- **Tailwind CSS v4**
+- **Deepgram** for speech-to-text
+- **Mistral AI** for the LLM
+- **ElevenLabs** for text-to-speech
+
+## Quickstart
+
+### 1. Prerequisites
+
+- Node.js 18.18+ (Node 20 LTS recommended)
+- API keys for [Deepgram](https://console.deepgram.com/),
+  [Mistral](https://console.mistral.ai/), and
+  [ElevenLabs](https://elevenlabs.io/app/settings/api-keys) — each has a free
+  tier sufficient for a demo
+- A browser with mic access (and `https://` or `localhost`)
+
+### 2. Install & configure
+
+```bash
+npm install
+cp .env.example .env.local
+# then edit .env.local and fill in your three API keys
+```
+
+### 3. Run it
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+For a production build:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+npm start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Usage
 
-## Learn More
+1. Open http://localhost:3000.
+2. Click the microphone button — your browser will ask for mic permission.
+3. Say something ("What's the weather like on Mars?").
+4. Click stop. Within a second or two you'll see your transcribed text, the
+   model's reply, and hear the reply spoken back.
+5. Repeat — each turn is independent (no conversation memory yet, see
+   [`DOCS/REPO_OVERVIEW.md`](DOCS/REPO_OVERVIEW.md#known-issues--todos)).
 
-To learn more about Next.js, take a look at the following resources:
+### API endpoints (if you want to hit them directly)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+# Speech-to-text — multipart form with an `audio` blob
+curl -X POST http://localhost:3000/api/transcribe \
+  -F "audio=@sample.wav"
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# LLM reply — JSON
+curl -X POST http://localhost:3000/api/mistral \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, who are you?"}'
 
-## Deploy on Vercel
+# Text-to-speech — returns audio/mpeg
+curl -X POST http://localhost:3000/api/text-to-speech \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hi there"}' --output reply.mp3
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Architecture
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                          Browser (client)                        │
+│                                                                  │
+│   VoiceRecorder ──▶ MediaRecorder ──▶ Blob                       │
+│                                        │                         │
+│                                        ▼                         │
+│        page.tsx orchestrates: transcribe → mistral → tts → play  │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ fetch (multipart / JSON)
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       Next.js API routes                         │
+│                                                                  │
+│  /api/transcribe  ─▶  lib/services/deepgram.ts   ─▶  Deepgram    │
+│  /api/mistral     ─▶  lib/services/mistral.ts    ─▶  Mistral     │
+│  /api/text-to-speech ▶ lib/services/elevenlabs.ts ─▶ ElevenLabs  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+API keys live in environment variables, read only on the server side. The
+browser never sees them.
+
+## Project structure
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── transcribe/route.ts       # Deepgram STT endpoint
+│   │   ├── mistral/route.ts          # Mistral LLM endpoint
+│   │   └── text-to-speech/route.ts   # ElevenLabs TTS endpoint
+│   ├── layout.tsx
+│   ├── page.tsx                      # Main conversation UI
+│   └── globals.css
+├── components/
+│   └── VoiceRecorder.tsx             # Mic record button + states
+└── lib/
+    └── services/                     # Provider client wrappers
+        ├── deepgram.ts
+        ├── mistral.ts
+        └── elevenlabs.ts
+```
+
+## Further reading
+
+- [`DOCS/REPO_OVERVIEW.md`](DOCS/REPO_OVERVIEW.md) — deeper dive, request flow,
+  and known issues.
+- [`DOCS/CHANGELOG.md`](DOCS/CHANGELOG.md) — what changed in the cleanup pass.
